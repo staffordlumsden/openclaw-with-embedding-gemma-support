@@ -19,7 +19,7 @@
 </p>
 
 > [!NOTE]
-> Kudos to the OpenClaw creator and upstream project at [`openclaw/openclaw`](https://github.com/openclaw/openclaw). This fork keeps OpenClaw as its base and adds `embeddinggemma`-aware semantic memory search for Ollama-backed embeddings.
+> Kudos to the OpenClaw creator and upstream project at [`openclaw/openclaw`](https://github.com/openclaw/openclaw). This fork keeps OpenClaw as its base and adds two [2] memory management/use strategies: (a) `embeddinggemma`-aware semantic memory search for Ollama-backed embeddings and (b) a global `USER.md`, `IDENTITY.md`, and `MEMORY.md` strategy plus bootstrap for each workspace.
 >
 > Why this fork adds explicit `embeddinggemma` support:
 > 1. Document Prompt Prefix. When embedding memory documents or chunks for a vector index, `embeddinggemma` retrieval works better when documents are embedded in a retrieval-document shape rather than as raw text.
