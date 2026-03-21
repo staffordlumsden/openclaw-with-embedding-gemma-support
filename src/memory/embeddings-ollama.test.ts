@@ -1,6 +1,12 @@
 import { describe, it, expect, vi } from "vitest";
 import type { OpenClawConfig } from "../config/config.js";
-import { createOllamaEmbeddingProvider } from "./embeddings-ollama.js";
+import {
+  createOllamaEmbeddingProvider,
+  formatEmbeddingGemmaDocumentPrompt,
+  getEmbeddingGemmaDocumentTitle,
+  getEmbeddingGemmaDocumentTitleFromPath,
+  getOllamaEmbeddingStrategyVersion,
+} from "./embeddings-ollama.js";
 
 describe("embeddings-ollama", () => {
   it("calls /api/embeddings and returns normalized vectors", async () => {
@@ -125,5 +131,89 @@ describe("embeddings-ollama", () => {
         }),
       }),
     );
+  });
+
+  it("formats embeddinggemma queries with the retrieval query prompt", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ embedding: [1, 0] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const { provider } = await createOllamaEmbeddingProvider({
+      config: {} as OpenClawConfig,
+      provider: "ollama",
+      model: "embeddinggemma:latest",
+      fallback: "none",
+      remote: { baseUrl: "http://127.0.0.1:11434" },
+    });
+
+    await provider.embedQuery("bootstrap workspace");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:11434/api/embeddings",
+      expect.objectContaining({
+        body: JSON.stringify({
+          model: "embeddinggemma:latest",
+          prompt: "task: search result | query: bootstrap workspace",
+        }),
+      }),
+    );
+  });
+
+  it("formats embeddinggemma documents with title-aware prompts", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ embedding: [1, 0] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const { provider } = await createOllamaEmbeddingProvider({
+      config: {} as OpenClawConfig,
+      provider: "ollama",
+      model: "embeddinggemma:latest",
+      fallback: "none",
+      remote: { baseUrl: "http://127.0.0.1:11434" },
+    });
+
+    await provider.embedBatch([formatEmbeddingGemmaDocumentPrompt("memory body", "session-title")]);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:11434/api/embeddings",
+      expect.objectContaining({
+        body: JSON.stringify({
+          model: "embeddinggemma:latest",
+          prompt: "title: session-title | text: memory body",
+        }),
+      }),
+    );
+  });
+
+  it("prefers the first markdown heading for embeddinggemma document titles", () => {
+    expect(
+      getEmbeddingGemmaDocumentTitle(
+        "intro\n# Session Summary\nBody text",
+        "memory/2026-03-21-session.md",
+      ),
+    ).toBe("Session Summary");
+  });
+
+  it("falls back to the filename stem for embeddinggemma document titles", () => {
+    expect(getEmbeddingGemmaDocumentTitleFromPath("memory/2026-03-21-session.md")).toBe(
+      "2026-03-21-session",
+    );
+  });
+
+  it("uses a distinct strategy version for embeddinggemma", () => {
+    expect(getOllamaEmbeddingStrategyVersion("embeddinggemma:latest")).toBe(
+      "embeddinggemma-rag-v3",
+    );
+    expect(getOllamaEmbeddingStrategyVersion("nomic-embed-text")).toBe("default-v1");
   });
 });

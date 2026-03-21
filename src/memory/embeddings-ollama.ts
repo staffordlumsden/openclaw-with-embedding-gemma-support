@@ -28,6 +28,38 @@ function normalizeOllamaModel(model: string): string {
   });
 }
 
+export function isEmbeddingGemmaOllamaModel(model: string): boolean {
+  const normalized = model.trim().toLowerCase();
+  return normalized === "embeddinggemma" || normalized.startsWith("embeddinggemma:");
+}
+
+export function formatEmbeddingGemmaQueryPrompt(text: string): string {
+  return `task: search result | query: ${text}`;
+}
+
+export function isEmbeddingGemmaStructuredDocumentPrompt(text: string): boolean {
+  return /^title:\s.*\|\stext:\s/s.test(text);
+}
+
+export function getEmbeddingGemmaDocumentTitleFromPath(filePath: string): string {
+  const baseName = filePath.replaceAll("\\", "/").split("/").pop() ?? "";
+  const stem = baseName.replace(/\.[^.]+$/, "").trim();
+  return stem || "none";
+}
+
+export function getEmbeddingGemmaDocumentTitle(text: string, filePath: string): string {
+  const headingMatch = text.match(/^#\s+(.+?)\s*$/m);
+  return headingMatch?.[1]?.trim() || getEmbeddingGemmaDocumentTitleFromPath(filePath);
+}
+
+export function formatEmbeddingGemmaDocumentPrompt(text: string, title = "none"): string {
+  return `title: ${title} | text: ${text}`;
+}
+
+export function getOllamaEmbeddingStrategyVersion(model: string): string {
+  return isEmbeddingGemmaOllamaModel(model) ? "embeddinggemma-rag-v3" : "default-v1";
+}
+
 function resolveOllamaApiKey(options: EmbeddingProviderOptions): string | undefined {
   const remoteApiKey = resolveMemorySecretInputString({
     value: options.remote?.apiKey,
@@ -75,14 +107,24 @@ export async function createOllamaEmbeddingProvider(
   const client = resolveOllamaEmbeddingClient(options);
   const embedUrl = `${client.baseUrl.replace(/\/$/, "")}/api/embeddings`;
 
-  const embedOne = async (text: string): Promise<number[]> => {
+  const embedOne = async (
+    text: string,
+    kind: "query" | "document" = "document",
+  ): Promise<number[]> => {
+    const prompt = isEmbeddingGemmaOllamaModel(client.model)
+      ? kind === "query"
+        ? formatEmbeddingGemmaQueryPrompt(text)
+        : isEmbeddingGemmaStructuredDocumentPrompt(text)
+          ? text
+          : formatEmbeddingGemmaDocumentPrompt(text)
+      : text;
     const json = await withRemoteHttpResponse({
       url: embedUrl,
       ssrfPolicy: client.ssrfPolicy,
       init: {
         method: "POST",
         headers: client.headers,
-        body: JSON.stringify({ model: client.model, prompt: text }),
+        body: JSON.stringify({ model: client.model, prompt }),
       },
       onResponse: async (res) => {
         if (!res.ok) {
@@ -100,10 +142,10 @@ export async function createOllamaEmbeddingProvider(
   const provider: EmbeddingProvider = {
     id: "ollama",
     model: client.model,
-    embedQuery: embedOne,
+    embedQuery: async (text) => await embedOne(text, "query"),
     embedBatch: async (texts: string[]) => {
       // Ollama /api/embeddings accepts one prompt per request.
-      return await Promise.all(texts.map(embedOne));
+      return await Promise.all(texts.map((text) => embedOne(text, "document")));
     },
   };
 

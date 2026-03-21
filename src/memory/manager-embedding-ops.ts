@@ -15,6 +15,13 @@ import {
 import { type EmbeddingInput, hasNonTextEmbeddingParts } from "./embedding-inputs.js";
 import { buildGeminiEmbeddingRequest } from "./embeddings-gemini.js";
 import {
+  formatEmbeddingGemmaDocumentPrompt,
+  getEmbeddingGemmaDocumentTitle,
+  getEmbeddingGemmaDocumentTitleFromPath,
+  getOllamaEmbeddingStrategyVersion,
+  isEmbeddingGemmaOllamaModel,
+} from "./embeddings-ollama.js";
+import {
   buildMultimodalChunkForIndexing,
   chunkMarkdown,
   hashText,
@@ -182,7 +189,10 @@ export abstract class MemoryManagerEmbeddingOps extends MemoryManagerSyncOps {
       .run(excess);
   }
 
-  private async embedChunksInBatches(chunks: MemoryChunk[]): Promise<number[][]> {
+  private async embedChunksInBatches(
+    chunks: MemoryChunk[],
+    options?: { entryPath?: string; documentTitle?: string },
+  ): Promise<number[][]> {
     if (chunks.length === 0) {
       return [];
     }
@@ -208,9 +218,15 @@ export abstract class MemoryManagerEmbeddingOps extends MemoryManagerSyncOps {
           `Embedding provider "${provider.id}" does not support multimodal memory inputs.`,
         );
       }
+      const resolvedTitle =
+        options?.documentTitle ?? getEmbeddingGemmaDocumentTitleFromPath(options?.entryPath ?? "");
+      const batchTexts =
+        provider.id === "ollama" && isEmbeddingGemmaOllamaModel(provider.model)
+          ? batch.map((chunk) => formatEmbeddingGemmaDocumentPrompt(chunk.text, resolvedTitle))
+          : batch.map((chunk) => chunk.text);
       const batchEmbeddings = hasStructuredInputs
         ? await this.embedBatchInputsWithRetry(inputs)
-        : await this.embedBatchWithRetry(batch.map((chunk) => chunk.text));
+        : await this.embedBatchWithRetry(batchTexts);
       for (let i = 0; i < batch.length; i += 1) {
         const item = missing[cursor + i];
         const embedding = batchEmbeddings[i] ?? [];
@@ -262,6 +278,15 @@ export abstract class MemoryManagerEmbeddingOps extends MemoryManagerSyncOps {
         }),
       );
     }
+    if (this.provider.id === "ollama") {
+      return hashText(
+        JSON.stringify({
+          provider: "ollama",
+          model: this.provider.model,
+          embeddingStrategy: getOllamaEmbeddingStrategyVersion(this.provider.model),
+        }),
+      );
+    }
     return hashText(JSON.stringify({ provider: this.provider.id, model: this.provider.model }));
   }
 
@@ -269,9 +294,10 @@ export abstract class MemoryManagerEmbeddingOps extends MemoryManagerSyncOps {
     chunks: MemoryChunk[],
     entry: MemoryFileEntry | SessionFileEntry,
     source: MemorySource,
+    documentTitle?: string,
   ): Promise<number[][]> {
     if (!this.provider) {
-      return this.embedChunksInBatches(chunks);
+      return this.embedChunksInBatches(chunks, { entryPath: entry.path, documentTitle });
     }
     if (this.provider.id === "openai" && this.openAi) {
       return this.embedChunksWithOpenAiBatch(chunks, entry, source);
@@ -282,7 +308,7 @@ export abstract class MemoryManagerEmbeddingOps extends MemoryManagerSyncOps {
     if (this.provider.id === "voyage" && this.voyage) {
       return this.embedChunksWithVoyageBatch(chunks, entry, source);
     }
-    return this.embedChunksInBatches(chunks);
+    return this.embedChunksInBatches(chunks, { entryPath: entry.path, documentTitle });
   }
 
   private collectCachedEmbeddings(chunks: MemoryChunk[]): {
@@ -815,6 +841,7 @@ export abstract class MemoryManagerEmbeddingOps extends MemoryManagerSyncOps {
 
     let chunks: MemoryChunk[];
     let structuredInputBytes: number | undefined;
+    let documentTitle = getEmbeddingGemmaDocumentTitleFromPath(entry.path);
     if ("kind" in entry && entry.kind === "multimodal") {
       const multimodalChunk = await buildMultimodalChunkForIndexing(entry);
       if (!multimodalChunk) {
@@ -826,6 +853,7 @@ export abstract class MemoryManagerEmbeddingOps extends MemoryManagerSyncOps {
       chunks = [multimodalChunk.chunk];
     } else {
       const content = options.content ?? (await fs.readFile(entry.absPath, "utf-8"));
+      documentTitle = getEmbeddingGemmaDocumentTitle(content, entry.path);
       chunks = enforceEmbeddingMaxInputTokens(
         this.provider,
         chunkMarkdown(content, this.settings.chunking).filter(
@@ -840,8 +868,8 @@ export abstract class MemoryManagerEmbeddingOps extends MemoryManagerSyncOps {
     let embeddings: number[][];
     try {
       embeddings = this.batch.enabled
-        ? await this.embedChunksWithBatch(chunks, entry, options.source)
-        : await this.embedChunksInBatches(chunks);
+        ? await this.embedChunksWithBatch(chunks, entry, options.source, documentTitle)
+        : await this.embedChunksInBatches(chunks, { entryPath: entry.path, documentTitle });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       if (

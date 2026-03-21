@@ -14,6 +14,7 @@ let closeAllMemorySearchManagers: MemoryIndexModule["closeAllMemorySearchManager
 
 let embedBatchCalls = 0;
 let embedBatchInputCalls = 0;
+let embedBatchTexts: string[][] = [];
 let providerCalls: Array<{ provider?: string; model?: string; outputDimensionality?: number }> = [];
 
 vi.mock("./embeddings.js", () => {
@@ -36,7 +37,12 @@ vi.mock("./embeddings.js", () => {
         model: options.model,
         outputDimensionality: options.outputDimensionality,
       });
-      const providerId = options.provider === "gemini" ? "gemini" : "mock";
+      const providerId =
+        options.provider === "gemini"
+          ? "gemini"
+          : options.provider === "ollama"
+            ? "ollama"
+            : "mock";
       const model = options.model ?? "mock-embed";
       return {
         requestedProvider: options.provider ?? "openai",
@@ -46,6 +52,7 @@ vi.mock("./embeddings.js", () => {
           embedQuery: async (text: string) => embedText(text),
           embedBatch: async (texts: string[]) => {
             embedBatchCalls += 1;
+            embedBatchTexts.push([...texts]);
             return texts.map(embedText);
           },
           ...(providerId === "gemini"
@@ -168,6 +175,7 @@ describe("memory index", () => {
     vi.stubEnv("OPENCLAW_TEST_MEMORY_UNSAFE_REINDEX", "1");
     embedBatchCalls = 0;
     embedBatchInputCalls = 0;
+    embedBatchTexts = [];
     providerCalls = [];
 
     mkdirSync(memoryDir, { recursive: true });
@@ -194,7 +202,7 @@ describe("memory index", () => {
     extraPaths?: string[];
     sources?: Array<"memory" | "sessions">;
     sessionMemory?: boolean;
-    provider?: "openai" | "gemini";
+    provider?: "openai" | "gemini" | "ollama";
     model?: string;
     outputDimensionality?: number;
     multimodal?: {
@@ -929,6 +937,23 @@ describe("memory index", () => {
       ),
     ).toBe(true);
     await manager.close?.();
+  });
+
+  it("formats embeddinggemma memory chunks with heading titles during indexing", async () => {
+    const cfg = createCfg({
+      storePath: path.join(workspaceDir, `index-ollama-${randomUUID()}.sqlite`),
+      provider: "ollama",
+      model: "embeddinggemma:latest",
+    });
+
+    const manager = await getPersistentManager(cfg);
+    await manager.sync({ reason: "test" });
+
+    expect(
+      embedBatchTexts.some((batch) =>
+        batch.some((text) => text.includes("title: Log | text: # Log\nAlpha memory line.")),
+      ),
+    ).toBe(true);
   });
 
   it("reindexes when Gemini outputDimensionality changes", async () => {
