@@ -21,6 +21,10 @@
 > [!NOTE]
 > Kudos to the OpenClaw creator and upstream project at [`openclaw/openclaw`](https://github.com/openclaw/openclaw). This fork keeps OpenClaw as its base and adds `embeddinggemma`-aware semantic memory search for Ollama-backed embeddings.
 >
+> Why this fork adds explicit `embeddinggemma` support:
+> 1. Document Prompt Prefix. When embedding memory documents or chunks for a vector index, `embeddinggemma` retrieval works better when documents are embedded in a retrieval-document shape rather than as raw text.
+> 2. Further Improving Document Embeddings (Optional). Retrieval quality improves further when document embeddings include lightweight title context in the form `title: [TITLE] | text: [DOCUMENT_CONTENT]`.
+>
 > What this fork adds:
 > - Query embeddings are formatted with a retrieval-style query prompt for `embeddinggemma`.
 > - Memory document embeddings are formatted as `title: ... | text: ...` instead of embedding raw chunk text.
@@ -119,6 +123,92 @@ pnpm gateway:watch
 ```
 
 Note: `pnpm openclaw ...` runs TypeScript directly (via `tsx`). `pnpm build` produces `dist/` for running via Node / the packaged `openclaw` binary.
+
+## EmbeddingGemma semantic memory
+
+This fork adds source-level support for using `embeddinggemma` with OpenClaw memory search over Ollama.
+
+Behavior added in this fork:
+
+- Query embeddings use a retrieval-style query prompt.
+- Document embeddings use `title: ... | text: ...` formatting for retrieval.
+- Document titles prefer the first Markdown `# Heading`, then fall back to the filename stem.
+- Memory provider keys include an embedding strategy version so changing this behavior forces a clean reindex.
+
+Sanitized memory config example:
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "memorySearch": {
+        "provider": "ollama",
+        "model": "embeddinggemma:latest",
+        "fallback": "none",
+        "store": {
+          "vector": {
+            "enabled": true
+          }
+        },
+        "query": {
+          "hybrid": {
+            "enabled": true,
+            "vectorWeight": 0.7,
+            "textWeight": 0.3
+          }
+        },
+        "cache": {
+          "enabled": true
+        }
+      }
+    }
+  }
+}
+```
+
+Recommended workflow after changing embedding behavior or models:
+
+```bash
+openclaw gateway restart
+openclaw memory index --agent main --force --verbose
+openclaw memory search --agent main --query "example query"
+```
+
+## Global IDENTITY / USER / SOUL bootstrap
+
+If you want every workspace to inherit the same global persona/context files, keep the canonical markdown files in your OpenClaw state directory and symlink workspace-local names back to them.
+
+Suggested layout:
+
+```text
+~/.openclaw/
+  IDENTITY_GLOBAL.md
+  USER_GLOBAL.md
+  SOUL_GLOBAL.md
+  bootstrap-workspace.sh
+  workspace/
+    IDENTITY.md -> ../IDENTITY_GLOBAL.md
+    USER.md -> ../USER_GLOBAL.md
+    SOUL.md -> ../SOUL_GLOBAL.md
+```
+
+Sanitized bootstrap example:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+openclaw_home="${OPENCLAW_HOME:-$HOME/.openclaw}"
+workspace_dir="${1:-$openclaw_home/workspace}"
+
+mkdir -p "$workspace_dir"
+
+ln -sfn "$openclaw_home/IDENTITY_GLOBAL.md" "$workspace_dir/IDENTITY.md"
+ln -sfn "$openclaw_home/USER_GLOBAL.md" "$workspace_dir/USER.md"
+ln -sfn "$openclaw_home/SOUL_GLOBAL.md" "$workspace_dir/SOUL.md"
+```
+
+This keeps one canonical copy of each global file while letting every workspace read the standard `IDENTITY.md`, `USER.md`, and `SOUL.md` paths.
 
 ## Security defaults (DM access)
 
