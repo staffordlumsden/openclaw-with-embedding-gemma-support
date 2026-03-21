@@ -18,6 +18,17 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge" alt="MIT License"></a>
 </p>
 
+> [!NOTE]
+> Kudos to the OpenClaw creator and upstream project at [`openclaw/openclaw`](https://github.com/openclaw/openclaw). This fork keeps OpenClaw as its base and adds `embeddinggemma`-aware semantic memory search for Ollama-backed embeddings.
+>
+> What this fork adds:
+> - Query embeddings are formatted with a retrieval-style query prompt for `embeddinggemma`.
+> - Memory document embeddings are formatted as `title: ... | text: ...` instead of embedding raw chunk text.
+> - Document titles prefer the first Markdown `# Heading`, then fall back to the memory filename stem, which fits date/session-style memory files well.
+> - Ollama memory provider keys include an embedding strategy version so semantic memory reindexes cleanly when this embedding behavior changes.
+>
+> In practice, this means OpenClaw memory search can make better use of `embeddinggemma:latest` for semantic retrieval over stored notes, sessions, and memory markdown files.
+
 **OpenClaw** is a _personal AI assistant_ you run on your own devices.
 It answers you on the channels you already use (WhatsApp, Telegram, Slack, Discord, Google Chat, Signal, iMessage, BlueBubbles, IRC, Microsoft Teams, Matrix, Feishu, LINE, Mattermost, Nextcloud Talk, Nostr, Synology Chat, Tlon, Twitch, Zalo, Zalo Personal, WebChat). It can speak and listen on macOS/iOS/Android, and can render a live Canvas you control. The Gateway is just the control plane — the product is the assistant.
 
