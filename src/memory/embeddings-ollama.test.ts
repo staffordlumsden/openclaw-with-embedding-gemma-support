@@ -1,12 +1,33 @@
-import { describe, it, expect, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, it, expect, vi } from "vitest";
 import type { OpenClawConfig } from "../config/config.js";
-import {
-  createOllamaEmbeddingProvider,
-  formatEmbeddingGemmaDocumentPrompt,
-  getEmbeddingGemmaDocumentTitle,
-  getEmbeddingGemmaDocumentTitleFromPath,
-  getOllamaEmbeddingStrategyVersion,
-} from "./embeddings-ollama.js";
+
+let createOllamaEmbeddingProvider: typeof import("./embeddings-ollama.js").createOllamaEmbeddingProvider;
+let formatEmbeddingGemmaDocumentPrompt: typeof import("./embeddings-ollama.js").formatEmbeddingGemmaDocumentPrompt;
+let getEmbeddingGemmaDocumentTitle: typeof import("./embeddings-ollama.js").getEmbeddingGemmaDocumentTitle;
+let getEmbeddingGemmaDocumentTitleFromPath: typeof import("./embeddings-ollama.js").getEmbeddingGemmaDocumentTitleFromPath;
+let getOllamaEmbeddingStrategyVersion: typeof import("./embeddings-ollama.js").getOllamaEmbeddingStrategyVersion;
+
+beforeAll(async () => {
+  ({
+    createOllamaEmbeddingProvider,
+    formatEmbeddingGemmaDocumentPrompt,
+    getEmbeddingGemmaDocumentTitle,
+    getEmbeddingGemmaDocumentTitleFromPath,
+    getOllamaEmbeddingStrategyVersion,
+  } = await import("./embeddings-ollama.js"));
+});
+
+beforeEach(() => {
+  vi.useRealTimers();
+  vi.doUnmock("undici");
+});
+
+afterEach(() => {
+  vi.doUnmock("undici");
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+  vi.resetAllMocks();
+});
 
 describe("embeddings-ollama", () => {
   it("calls /api/embeddings and returns normalized vectors", async () => {
